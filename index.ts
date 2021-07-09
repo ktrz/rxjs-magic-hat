@@ -99,78 +99,17 @@ function makeDraggable(element) {
     const mouseDown$ = fromEvent(element, 'mousedown');
     const touchStart$ = fromEvent(element, 'touchstart');
 
-    const dragStartMouse$: Observable<MouseEvent> = mouseDown$.pipe(
-      switchMap((start: MouseEvent) =>
-        mouseMove$.pipe(
-          startWith(start),
-          first()
-        )
-      )
-    );
+    const {
+      dragStartMouse$,
+      dragMoveMouse$,
+      dragEndMouse$
+    } = createMouseBasedEvents();
 
-    const resetTouchStart$ = defer(() => touchEnd$).pipe(
-      map(() => null),
-      tap(console.log.bind(console, 'resetTouch'))
-    );
-
-    const dragStartTouch$: Observable<TouchEvent> = merge(
-      touchStart$,
-      resetTouchStart$
-    ).pipe(
-      distinctUntilChanged(
-        (a, b) => a === b,
-        (event: TouchEvent) => event?.targetTouches[0]?.identifier ?? -1
-      ),
-      filter(Boolean),
-      switchMap((start: TouchEvent) =>
-        mouseMove$.pipe(
-          startWith(start),
-          first()
-        )
-      )
-    );
-
-    const dragMoveMouse$ = dragStartMouse$.pipe(
-      switchMap((start: MouseEvent) =>
-        mouseMove$.pipe(
-          startWith(start),
-          takeUntil(mouseUp$),
-          map(toDragEvent(start))
-        )
-      )
-    );
-
-    const dragMoveTouch$ = dragStartTouch$.pipe(
-      switchMap((start: TouchEvent) =>
-        touchMove$.pipe(
-          startWith(start),
-          takeUntil(touchEnd$),
-          map(touchToDragEvent(start))
-        )
-      )
-    );
-
-    const dragEndMouse$ = dragStartMouse$.pipe(
-      switchMap((start: MouseEvent) =>
-        mouseMove$.pipe(
-          startWith(start),
-          takeUntil(mouseUp$),
-          map(toDragEvent(start)),
-          last()
-        )
-      )
-    );
-
-    const dragEndTouch$ = dragStartTouch$.pipe(
-      switchMap((start: TouchEvent) =>
-        touchMove$.pipe(
-          startWith(start),
-          takeUntil(touchEnd$),
-          map(touchToDragEvent(start)),
-          last()
-        )
-      )
-    );
+    const {
+      dragStartTouch$,
+      dragMoveTouch$,
+      dragEndTouch$
+    } = createTouchBasedEvents();
 
     const dragStart$ = merge(dragStartMouse$, dragStartTouch$);
     const dragMove$ = merge(dragMoveMouse$, dragMoveTouch$);
@@ -181,16 +120,95 @@ function makeDraggable(element) {
       dragEnd$,
       dragMove$
     };
-  }
 
-  interface DragMoveEvent {
-    originalEvent: MouseEvent | TouchEvent;
-    startOffsetX: number;
-    startOffsetY: number;
-    deltaX: number;
-    deltaY: number;
-    offsetX: number;
-    offsetY: number;
+    function createMouseBasedEvents() {
+      const dragStartMouse$: Observable<MouseEvent> = mouseDown$.pipe(
+        switchMap((start: MouseEvent) =>
+          mouseMove$.pipe(
+            startWith(start),
+            first()
+          )
+        )
+      );
+
+      const dragMoveMouse$ = dragStartMouse$.pipe(
+        switchMap((start: MouseEvent) =>
+          mouseMove$.pipe(
+            startWith(start),
+            takeUntil(mouseUp$),
+            map(toDragEvent(start))
+          )
+        )
+      );
+
+      const dragEndMouse$ = dragStartMouse$.pipe(
+        switchMap((start: MouseEvent) =>
+          mouseMove$.pipe(
+            startWith(start),
+            takeUntil(mouseUp$),
+            map(toDragEvent(start)),
+            last()
+          )
+        )
+      );
+
+      return {
+        dragStartMouse$,
+        dragMoveMouse$,
+        dragEndMouse$
+      };
+    }
+
+    function createTouchBasedEvents() {
+      const resetTouchStart$ = defer(() => touchEnd$).pipe(
+        map(() => null),
+        tap(console.log.bind(console, 'resetTouch'))
+      );
+
+      const dragStartTouch$: Observable<TouchEvent> = merge(
+        touchStart$,
+        resetTouchStart$
+      ).pipe(
+        distinctUntilChanged(
+          (a, b) => a === b,
+          (event: TouchEvent) => event?.targetTouches[0]?.identifier ?? -1
+        ),
+        filter(Boolean),
+        switchMap((start: TouchEvent) =>
+          mouseMove$.pipe(
+            startWith(start),
+            first()
+          )
+        )
+      );
+
+      const dragMoveTouch$ = dragStartTouch$.pipe(
+        switchMap((start: TouchEvent) =>
+          touchMove$.pipe(
+            startWith(start),
+            takeUntil(touchEnd$),
+            map(touchToDragEvent(start))
+          )
+        )
+      );
+
+      const dragEndTouch$ = dragStartTouch$.pipe(
+        switchMap((start: TouchEvent) =>
+          touchMove$.pipe(
+            startWith(start),
+            takeUntil(touchEnd$),
+            map(touchToDragEvent(start)),
+            last()
+          )
+        )
+      );
+
+      return {
+        dragStartTouch$,
+        dragMoveTouch$,
+        dragEndTouch$
+      };
+    }
   }
 
   function updatePosition(dragMove$: Observable<DragMoveEvent>) {
@@ -205,42 +223,52 @@ function makeDraggable(element) {
 
     changePosition$.subscribe();
   }
+}
 
-  function toDragEvent(start: MouseEvent) {
-    return (moveEvent: MouseEvent): DragMoveEvent => {
-      return {
-        originalEvent: moveEvent,
-        deltaX: moveEvent.pageX - start.pageX,
-        deltaY: moveEvent.pageY - start.pageY,
-        startOffsetX: start.offsetX,
-        startOffsetY: start.offsetY,
-        offsetX: moveEvent.x - start.offsetX,
-        offsetY: moveEvent.y - start.offsetY
-      };
+interface DragMoveEvent {
+  originalEvent: MouseEvent | TouchEvent;
+  startOffsetX: number;
+  startOffsetY: number;
+  deltaX: number;
+  deltaY: number;
+  offsetX: number;
+  offsetY: number;
+}
+
+function toDragEvent(start: MouseEvent) {
+  return (moveEvent: MouseEvent): DragMoveEvent => {
+    return {
+      originalEvent: moveEvent,
+      deltaX: moveEvent.pageX - start.pageX,
+      deltaY: moveEvent.pageY - start.pageY,
+      startOffsetX: start.offsetX,
+      startOffsetY: start.offsetY,
+      offsetX: moveEvent.x - start.offsetX,
+      offsetY: moveEvent.y - start.offsetY
     };
-  }
+  };
+}
 
-  function touchToDragEvent(start: TouchEvent) {
-    const startOffsetX =
-      start.targetTouches[0].clientX - (start.target as HTMLElement).offsetLeft;
-    const startOffsetY =
-      start.targetTouches[0].clientY - (start.target as HTMLElement).offsetTop;
+function touchToDragEvent(start: TouchEvent) {
+  const startOffsetX =
+    start.targetTouches[0].clientX - (start.target as HTMLElement).offsetLeft;
+  const startOffsetY =
+    start.targetTouches[0].clientY - (start.target as HTMLElement).offsetTop;
 
-    return (moveEvent: TouchEvent): DragMoveEvent => {
-      const offsetX = moveEvent.targetTouches[0].clientX - startOffsetX;
-      const offsetY = moveEvent.targetTouches[0].clientY - startOffsetY;
+  return (moveEvent: TouchEvent): DragMoveEvent => {
+    const offsetX = moveEvent.targetTouches[0].clientX - startOffsetX;
+    const offsetY = moveEvent.targetTouches[0].clientY - startOffsetY;
 
-      return {
-        originalEvent: moveEvent,
-        deltaX: moveEvent.targetTouches[0].pageX - start.targetTouches[0].pageX,
-        deltaY: moveEvent.targetTouches[0].pageY - start.targetTouches[0].pageY,
-        startOffsetX,
-        startOffsetY,
-        offsetX,
-        offsetY
-      };
+    return {
+      originalEvent: moveEvent,
+      deltaX: moveEvent.targetTouches[0].pageX - start.targetTouches[0].pageX,
+      deltaY: moveEvent.targetTouches[0].pageY - start.targetTouches[0].pageY,
+      startOffsetX,
+      startOffsetY,
+      offsetX,
+      offsetY
     };
-  }
+  };
 }
 
 function generateRandomColor() {
