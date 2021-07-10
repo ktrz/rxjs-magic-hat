@@ -76,19 +76,16 @@ function makeDraggable(element) {
 
   combineLatest([
     dragStart$.pipe(
-      tap(console.log.bind(console, 'start')),
       tap(event =>
         element.dispatchEvent(new CustomEvent('dragstart', { detail: event }))
       )
     ),
     dragEnd$.pipe(
-      // tap(console.log.bind(console, 'end')),
       tap(event =>
         element.dispatchEvent(new CustomEvent('dragend', { detail: event }))
       )
     ),
     dragMove$.pipe(
-      // tap(console.log.bind(console, 'move')),
       tap(event =>
         element.dispatchEvent(new CustomEvent('dragmove', { detail: event }))
       )
