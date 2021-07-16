@@ -38,13 +38,9 @@ const mouseUp$ = fromEvent(document, 'mouseup');
 const mouseMove$ = fromEvent(document, 'mousemove');
 
 const touchEnd$: Observable<TouchEvent> = fromEvent(document, 'touchend');
-const touchMove$: Observable<TouchEvent> = fromEvent(
-  document,
-  'touchmove',
-  {
-    passive: false
-  }
-);
+const touchMove$: Observable<TouchEvent> = fromEvent(document, 'touchmove', {
+  passive: false
+});
 
 createDraggableElements().forEach(createNewElementOnDragStart);
 
@@ -81,7 +77,7 @@ function createDraggableElements() {
 function makeDraggable(element) {
   const { dragMove$, dragStart$, dragEnd$ } = createDragEvents(element);
 
-  updatePosition(dragMove$);
+  updatePosition(dragMove$, element);
 
   combineLatest([
     dragStart$.pipe(
@@ -100,19 +96,19 @@ function makeDraggable(element) {
       )
     )
   ]).subscribe();
+}
 
-  function updatePosition(dragMove$: Observable<DragMoveEvent>) {
-    const changePosition$ = dragMove$.pipe(
-      subscribeOn(animationFrameScheduler),
-      tap((e: DragMoveEvent) => e.originalEvent.preventDefault()),
-      tap(({ offsetX, offsetY }) => {
-        element.style.left = offsetX + 'px';
-        element.style.top = offsetY + 'px';
-      })
-    );
+function updatePosition(dragMove$: Observable<DragMoveEvent>, element) {
+  const changePosition$ = dragMove$.pipe(
+    subscribeOn(animationFrameScheduler),
+    tap((e: DragMoveEvent) => e.originalEvent.preventDefault()),
+    tap(({ offsetX, offsetY }) => {
+      element.style.left = offsetX + 'px';
+      element.style.top = offsetY + 'px';
+    })
+  );
 
-    changePosition$.subscribe();
-  }
+  return changePosition$.subscribe();
 }
 
 function createDragEvents(element) {
