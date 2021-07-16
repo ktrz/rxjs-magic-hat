@@ -7,6 +7,7 @@ import {
   combineLatest,
   Observable,
   GroupedObservable,
+  timer,
   merge,
   defer,
   EMPTY
@@ -24,8 +25,11 @@ import {
   filter,
   concatMap,
   groupBy,
-  mergeMap
+  mergeMap,
+  exhaustMap,
+  mergeAll, ignoreElements
 } from 'rxjs/operators';
+import { GroupedObservable, GroupedObservable } from 'rxjs/dist/types';
 
 const appDiv = document.getElementById('app');
 appDiv.innerHTML = `
@@ -37,13 +41,27 @@ appDiv.innerHTML = `
 
 const mouseUp$ = fromEvent(document, 'mouseup');
 const mouseMove$ = fromEvent(document, 'mousemove');
+const mouseDownDocument$ = fromEvent(document, 'mousedown');
 
 const touchEnd$: Observable<TouchEvent> = fromEvent(document, 'touchend');
 const touchMove$: Observable<TouchEvent> = fromEvent(document, 'touchmove', {
   passive: false
 });
 
-const touchStartDocument$: Observable<TouchEvent> = fromEvent(document, 'touchstart');
+const touchStartDocument$: Observable<TouchEvent> = fromEvent(
+  document,
+  'touchstart',
+  {
+    passive: false
+  }
+);
+
+const isDraggableElement = (e: EventTarget) => {
+  // console.log(e)
+  const e_ = e as HTMLElement;
+  return e_.classList.contains('draggable');
+  // return false
+};
 
 createDraggableElements().forEach(createNewElementOnDragStart);
 
@@ -72,7 +90,9 @@ function createDraggableElements() {
     document.getElementsByClassName('draggable')
   );
 
-  draggableElements.forEach(makeDraggable);
+  // draggableElements.forEach(makeDraggable);
+
+  makeDraggable2(isDraggableElement);
 
   return draggableElements;
 }
@@ -102,8 +122,6 @@ function makeDraggable(element: HTMLElement) {
 }
 
 function makeDraggable2(isDraggable: (el: HTMLElement) => boolean) {
-  createTouchBasedEvents2(isDraggable)
-
   const {
     dragStartMouse$,
     dragMoveMouse$,
@@ -124,19 +142,27 @@ function makeDraggable2(isDraggable: (el: HTMLElement) => boolean) {
 
   combineLatest([
     dragStart$.pipe(
-      tap((event: DragMoveEvent) =>
-        event.target.dispatchEvent(new CustomEvent('dragstart', { detail: event }))
-      )
+      tap((event: DragMoveEvent) => {
+        console.log('dragstart for element ', event.target);
+        event.target.dispatchEvent(
+          new CustomEvent('dragstart', { detail: event })
+        );
+      })
     ),
     dragEnd$.pipe(
-      tap((event: DragMoveEvent) =>
-        event.target.dispatchEvent(new CustomEvent('dragend', { detail: event }))
-      )
+      tap((event: DragMoveEvent) => {
+        console.log('dragend for element ', event.target);
+        event.target.dispatchEvent(
+          new CustomEvent('dragend', { detail: event })
+        );
+      })
     ),
     dragMove$.pipe(
-      tap((event: DragMoveEvent) =>
-        event.target.dispatchEvent(new CustomEvent('dragmove', { detail: event }))
-      )
+      tap((event: DragMoveEvent) => {
+        event.target.dispatchEvent(
+          new CustomEvent('dragmove', { detail: event })
+        );
+      })
     )
   ]).subscribe();
 }
@@ -218,26 +244,72 @@ function createMouseBasedEvents(element: HTMLElement) {
 }
 
 function createMouseBasedEvents2(isDraggable: (el: EventTarget) => boolean) {
+  const mouseDown$ = mouseDownDocument$.pipe(
+    filter((e: MouseEvent) => isDraggable(e.target))
+  );
+  const dragStartMouse$: Observable<MouseEvent> = mouseDown$.pipe(
+    switchMap((start: MouseEvent) =>
+      mouseMove$.pipe(
+        startWith(start),
+        first()
+      )
+    )
+  );
+
+  const dragMoveMouse$ = dragStartMouse$.pipe(
+    switchMap((start: MouseEvent) =>
+      mouseMove$.pipe(
+        startWith(start),
+        takeUntil(mouseUp$),
+        map(toDragEvent(start))
+      )
+    )
+  );
+
+  const dragEndMouse$ = dragStartMouse$.pipe(
+    switchMap((start: MouseEvent) =>
+      mouseMove$.pipe(
+        startWith(start),
+        takeUntil(mouseUp$),
+        map(toDragEvent(start)),
+        last()
+      )
+    )
+  );
+
   return {
-    dragStartMouse$: EMPTY,
-    dragMoveMouse$: EMPTY,
-    dragEndMouse$: EMPTY
-  }
+    dragStartMouse$,
+    dragMoveMouse$,
+    dragEndMouse$
+  };
 }
 
-function groupTouchEvents(predicate: (el: EventTarget) => boolean = () => true) {
-  return (observable: Observable<TouchEvent>) =>
-    observable.pipe(
+function groupTouchEvents(
+  predicate: (el: EventTarget) => boolean = () => true
+) {
+  return (observable: Observable<TouchEvent>) => {
+    return observable.pipe(
       concatMap((originalEvent: TouchEvent) =>
-        Array.from(originalEvent.targetTouches).map(touch => ({
+        Array.from(originalEvent.changedTouches).map(touch => ({
           id: touch.identifier,
           touch,
           originalEvent
         }))
       ),
       groupBy(({ touch }) => touch.identifier),
-      filter((e: TouchEventGrouped) => predicate(e.touch.target))
+      map(
+        (
+          group$: GroupedObservable<number, TouchEventGrouped>
+        ): GroupedObservable<number, TouchEventGrouped> =>
+          Object.assign(
+            group$.pipe(
+              filter((e: TouchEventGrouped) => predicate(e.touch.target))
+            ),
+            { key: group$.key }
+          )
+      )
     );
+  };
 }
 
 function filterGroupedEvents(id: number) {
@@ -250,7 +322,6 @@ function filterGroupedEvents(id: number) {
       )
     );
 }
-
 
 function createTouchBasedEvents(element: HTMLElement) {
   const touchStart$ = fromEvent(element, 'touchstart');
@@ -299,24 +370,41 @@ function createTouchBasedEvents(element: HTMLElement) {
   );
 
   return {
-    dragStartTouch$: dragStartTouch$.pipe(map((start: TouchEventGrouped) => touchToDragEvent(start)(start))),
+    dragStartTouch$: dragStartTouch$.pipe(
+      map((start: TouchEventGrouped) => touchToDragEvent(start)(start))
+    ),
     dragMoveTouch$,
     dragEndTouch$
   };
 }
 
 function createTouchBasedEvents2(isDraggable: (el: EventTarget) => boolean) {
-  const resetTouchStart$ = defer(() => touchEnd$).pipe(map(() => null));
+  const resetTouchStart$ = (id: number) => {
+    console.log('key ', id);
+    return defer(() => groupedTouchEnd$).pipe(
+      filterGroupedEvents(id),
+      map(() => null)
+    );
+  };
 
-  const groupedTouchStart$ = touchStartDocument$.pipe(groupTouchEvents(isDraggable));
+  const groupedTouchStart$ = touchStartDocument$.pipe(
+    groupTouchEvents(isDraggable)
+  );
   const groupedTouchMove$ = touchMove$.pipe(groupTouchEvents(isDraggable));
-  const groupedTouchEnd$ = touchEnd$.pipe(groupTouchEvents(isDraggable));
+  const groupedTouchEnd$ = touchEnd$.pipe(
+    tap(e => console.log('touchend ', e)),
+    groupTouchEvents(isDraggable),
+    tap((end$: Observable<any>) =>
+      console.log('touchend after grouping ', end$)
+    )
+  );
 
   const dragStartTouch$: Observable<
     TouchEventGrouped
   > = groupedTouchStart$.pipe(
-    switchMap((touchStart$: Observable<TouchEventGrouped>) =>
-      merge(touchStart$, resetTouchStart$).pipe(
+    tap(() => console.log('grouped touch start')),
+    mergeMap((touchStart$: GroupedObservable<number, TouchEventGrouped>) =>
+      merge(touchStart$, resetTouchStart$(touchStart$.key)).pipe(
         distinctUntilChanged(
           (a, b) => a === b,
           (event: any) => event?.id ?? -1
@@ -326,8 +414,26 @@ function createTouchBasedEvents2(isDraggable: (el: EventTarget) => boolean) {
     )
   );
 
+  const dragEndTouch$ = dragStartTouch$.pipe(
+    mergeMap((start: TouchEventGrouped) =>
+      groupedTouchMove$.pipe(
+        filterGroupedEvents(start.id),
+        startWith(start),
+        takeUntil(
+          groupedTouchEnd$.pipe(
+            tap(() => console.log('grouped touch end before')),
+            filterGroupedEvents(start.id),
+            tap(() => console.log('grouped touch end'))
+          )
+        ),
+        map(touchToDragEvent(start)),
+        last()
+      )
+    )
+  );
+
   const dragMoveTouch$ = dragStartTouch$.pipe(
-    switchMap((start: TouchEventGrouped) =>
+    exhaustMap((start: TouchEventGrouped) =>
       groupedTouchMove$.pipe(
         filterGroupedEvents(start.id),
         startWith(start),
@@ -337,20 +443,10 @@ function createTouchBasedEvents2(isDraggable: (el: EventTarget) => boolean) {
     )
   );
 
-  const dragEndTouch$ = dragStartTouch$.pipe(
-    switchMap((start: TouchEventGrouped) =>
-      groupedTouchMove$.pipe(
-        filterGroupedEvents(start.id),
-        startWith(start),
-        takeUntil(groupedTouchEnd$.pipe(filterGroupedEvents(start.id))),
-        map(touchToDragEvent(start)),
-        last()
-      )
-    )
-  );
-
   return {
-    dragStartTouch$,
+    dragStartTouch$: dragStartTouch$.pipe(
+      map((start: TouchEventGrouped) => touchToDragEvent(start)(start))
+    ),
     dragMoveTouch$,
     dragEndTouch$
   };
@@ -364,7 +460,7 @@ interface TouchEventGrouped {
 
 interface DragMoveEvent {
   id: number;
-  target: EventTarget,
+  target: EventTarget;
   originalEvent: MouseEvent | TouchEvent;
   startOffsetX: number;
   startOffsetY: number;
@@ -378,7 +474,7 @@ function toDragEvent(start: MouseEvent) {
   return (moveEvent: MouseEvent): DragMoveEvent => {
     return {
       id: 0,
-      target: moveEvent.target,
+      target: start.target,
       originalEvent: moveEvent,
       deltaX: moveEvent.pageX - start.pageX,
       deltaY: moveEvent.pageY - start.pageY,
@@ -403,7 +499,7 @@ function touchToDragEvent(start: TouchEventGrouped) {
 
     return {
       id: moveEvent.id,
-      target: moveEvent.touch.target,
+      target: start.touch.target,
       originalEvent: moveEvent.originalEvent,
       deltaX: moveEvent.touch.pageX - start.touch.pageX,
       deltaY: moveEvent.touch.pageY - start.touch.pageY,
