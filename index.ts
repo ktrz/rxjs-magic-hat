@@ -9,7 +9,7 @@ appDiv.innerHTML = `
   <div class="draggable"></div>
 `;
 
-import './v1';
+import './v2';
 
 appDiv.addEventListener('dragstart', (e: CustomEvent) => {
   console.log('dragstart', e.detail);
