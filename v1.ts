@@ -25,6 +25,7 @@ import {
 } from 'rxjs/operators';
 
 import {TouchEventGrouped, DragMoveEvent} from './types'
+import { createDraggableDiv } from './utils';
 
 const appDiv = document.getElementById('app');
 
@@ -43,16 +44,10 @@ function createNewElementOnDragStart(element) {
   fromEvent(element, 'dragstart')
     .pipe(
       first(),
-      map(() => {
-        const div = document.createElement('div');
-        div.classList.add('draggable');
-        div.classList.add('animate');
-        div.style.background = generateRandomColor();
-        return div;
-      }),
+      map(createDraggableDiv),
+      tap(makeDraggable),
+      tap(createNewElementOnDragStart),
       tap((div: HTMLDivElement) => {
-        //makeDraggable(div);
-        createNewElementOnDragStart(div);
         appDiv.appendChild(div);
       })
     )
@@ -75,22 +70,17 @@ function makeDraggable(element: HTMLElement) {
   updatePosition(dragMove$);
 
   combineLatest([
-    dragStart$.pipe(
-      tap(event =>
-        element.dispatchEvent(new CustomEvent('dragstart', { detail: event }))
-      )
-    ),
-    dragEnd$.pipe(
-      tap(event =>
-        element.dispatchEvent(new CustomEvent('dragend', { detail: event }))
-      )
-    ),
-    dragMove$.pipe(
-      tap(event =>
-        element.dispatchEvent(new CustomEvent('dragmove', { detail: event }))
-      )
-    )
+    dragStart$.pipe(tap(dispatchEvent('dragstart'))),
+    dragEnd$.pipe(tap(dispatchEvent('dragend'))),
+    dragMove$.pipe(tap(dispatchEvent('dragmove')))
   ]).subscribe();
+}
+
+function dispatchEvent(eventName: string) {
+  return (event: DragMoveEvent) =>
+    event.target.dispatchEvent(
+      new CustomEvent(eventName, { detail: event, bubbles: true })
+    );
 }
 
 function updatePosition(dragMove$: Observable<DragMoveEvent>) {
@@ -224,9 +214,7 @@ function createTouchBasedEvents(element: HTMLElement) {
   };
 }
 
-function groupTouchEvents(
-  predicate: (el: EventTarget) => boolean = () => true
-) {
+function groupTouchEvents() {
   return (observable: Observable<TouchEvent>) => {
     return observable.pipe(
       concatMap((originalEvent: TouchEvent) =>
@@ -236,7 +224,6 @@ function groupTouchEvents(
           originalEvent
         }))
       ),
-      filter((e: TouchEventGrouped) => predicate(e.touch.target)),
       groupBy(({ touch }) => touch.identifier)
     );
   };
@@ -292,9 +279,4 @@ function touchToDragEvent(start: TouchEventGrouped) {
       offsetY
     };
   };
-}
-
-function generateRandomColor() {
-  const colPart = () => Math.floor(Math.random() * 255);
-  return `rgb(${colPart()}, ${colPart()}, ${colPart()})`;
 }

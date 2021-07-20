@@ -27,6 +27,7 @@ import {
 } from 'rxjs/operators';
 
 import {TouchEventGrouped, DragMoveEvent} from './types'
+import { createDraggableDiv } from './utils';
 
 const appDiv = document.getElementById('app');
 
@@ -58,16 +59,9 @@ function createNewElementOnDragStart(element) {
   fromEvent(element, 'dragstart')
     .pipe(
       first(),
-      map(() => {
-        const div = document.createElement('div');
-        div.classList.add('draggable');
-        div.classList.add('animate');
-        div.style.background = generateRandomColor();
-        return div;
-      }),
+      map(createDraggableDiv),
+      tap(createNewElementOnDragStart),
       tap((div: HTMLDivElement) => {
-        //makeDraggable(div);
-        createNewElementOnDragStart(div);
         appDiv.appendChild(div);
       })
     )
@@ -104,28 +98,17 @@ function makeDraggable(isDraggable: (el: HTMLElement) => boolean) {
   updatePosition(dragMove$);
 
   combineLatest([
-    dragStart$.pipe(
-      tap((event: DragMoveEvent) => {
-        event.target.dispatchEvent(
-          new CustomEvent('dragstart', { detail: event })
-        );
-      })
-    ),
-    dragEnd$.pipe(
-      tap((event: DragMoveEvent) => {
-        event.target.dispatchEvent(
-          new CustomEvent('dragend', { detail: event })
-        );
-      })
-    ),
-    dragMove$.pipe(
-      tap((event: DragMoveEvent) => {
-        event.target.dispatchEvent(
-          new CustomEvent('dragmove', { detail: event })
-        );
-      })
-    )
+    dragStart$.pipe(tap(dispatchEvent('dragstart'))),
+    dragEnd$.pipe(tap(dispatchEvent('dragend'))),
+    dragMove$.pipe(tap(dispatchEvent('dragmove')))
   ]).subscribe();
+}
+
+function dispatchEvent(eventName: string) {
+  return (event: DragMoveEvent) =>
+    event.target.dispatchEvent(
+      new CustomEvent(eventName, { detail: event, bubbles: true })
+    );
 }
 
 function updatePosition(dragMove$: Observable<DragMoveEvent>) {
